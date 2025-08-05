@@ -110,9 +110,62 @@ YNL_SOCK_DESTROY:	ynl_sock_destroy(ndevmgr->ys);
 RETURN_ERROR:		return -1;
 }
 
+int ndevmgr_bind_tx_queue(NetdevManager ndevmgr,
+			  int ifindex, int queue_idx, int num_queue,
+			  int dmabuf_fd)
+{
+	struct netdev_bind_tx_req *req = NULL;
+	struct netdev_bind_tx_rsp *rsp = NULL;
+
+	ndevmgr->ys = ynl_sock_create(&ynl_netdev_family, &ndevmgr->yerr);
+	if (ndevmgr->ys == NULL) {
+		ERROR("failed to ynl_sock_create(): %s", ndevmgr->yerr.msg);
+		goto RETURN_ERROR;
+	}
+
+	req = netdev_bind_tx_req_alloc();
+	if (req == NULL) {
+		ERROR("failed to netdev_bind_tx_req_alloc(): %s",
+		      strerror(errno));
+		goto YNL_SOCK_DESTROY;
+	}
+
+	netdev_bind_tx_req_set_ifindex(req, ifindex);
+	netdev_bind_tx_req_set_fd(req, dmabuf_fd);
+
+	rsp = netdev_bind_tx(ndevmgr->ys, req);
+	if (rsp == NULL) {
+		ERROR("failed to netdev_bind_tx(): %s", ndevmgr->yerr.msg);
+		goto TX_REQ_FREE;
+	}
+
+	if (rsp->_present.id == 0) {
+		ERROR("failed to netdev_bind_tx(): %s", ndevmgr->yerr.msg);
+		goto TX_RSP_FREE;
+	}
+
+	ndevmgr->dmabuf_id = rsp->id;
+
+	netdev_bind_tx_rsp_free(rsp);
+	netdev_bind_tx_req_free(req);
+
+	return 0;
+
+TX_RSP_FREE:		netdev_bind_tx_rsp_free(rsp);
+TX_REQ_FREE:		netdev_bind_tx_req_free(req);
+YNL_SOCK_DESTROY:	ynl_sock_destroy(ndevmgr->ys);
+RETURN_ERROR:		return -1;
+	return -1;
+}
+
 int ndevmgr_get_dmabuf_id(NetdevManager ndevmgr)
 {
 	return ndevmgr->dmabuf_id;
+}
+
+void ndevmgr_release_tx_queue(NetdevManager ndevmgr)
+{
+	ynl_sock_destroy(ndevmgr->ys);
 }
 
 void ndevmgr_release_rx_queue(NetdevManager ndevmgr)
